@@ -4,27 +4,16 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
+dist/
+build/
 *.egg
 
 # Virtual Environment
+.venv/
 venv/
-env/
 ENV/
-.venv
+env/
 
 # IDE
 .vscode/
@@ -33,12 +22,21 @@ ENV/
 *.swo
 *~
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
 # OS
 .DS_Store
 Thumbs.db
 
 # Project specific
 *.log
+*.tmp
+output/
+temp/
+*.rar
+*.docx
+
+# Data folders
+Annotations/
+Reference/
+rotation/
+
+Image-Based PCB Defect Detection/

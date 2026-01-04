@@ -3,7 +3,7 @@ import numpy as np
 import xml.etree.ElementTree as ET
 from scipy.optimize import linear_sum_assignment
 
-# XML dosyasını oku ve gerçek kusur koordinatlarını al (Doğruluk hesaplamak için)
+# Read XML file and extract ground truth defect coordinates for accuracy calculation
 def get_actual_defects(xml_file):
     tree = ET.parse(xml_file)
     root = tree.getroot()
@@ -17,7 +17,7 @@ def get_actual_defects(xml_file):
         defects.append((xmin, ymin, xmax, ymax))
     return defects
 
-# IoU hesapla
+# Calculate Intersection over Union (IoU)
 def calculate_iou(box1, box2):
     x1, y1, x2, y2 = box1
     x1p, y1p, x2p, y2p = box2
@@ -34,8 +34,8 @@ def calculate_iou(box1, box2):
     union_area = box1_area + box2_area - inter_area
     return inter_area / union_area
 
-# Kusurları karşılaştır ve doğruluk hesapla
-def calculate_metrics(detected_defects, actual_defects, iou_threshold=0.1):  # IoU eşik değeri düşürüldü
+# Compare defects and calculate accuracy metrics
+def calculate_metrics(detected_defects, actual_defects, iou_threshold=0.1):  # IoU threshold reduced for better matching
     num_detected = len(detected_defects)
     num_actual = len(actual_defects)
     
@@ -70,31 +70,31 @@ def calculate_ap(recall, precision):
     ap = np.sum((recall[indices + 1] - recall[indices]) * precision[indices + 1])
     return ap
 
-# Resimleri yükleyin (Gri tonlamalı olarak)
-image1 = cv2.imread("Reference/original.JPG", cv2.IMREAD_GRAYSCALE)
+# Load images (grayscale)
+image1 = cv2.imread("Reference/01.JPG", cv2.IMREAD_GRAYSCALE)
 image2 = cv2.imread("rotation/Missing_hole_rotation/01_missing_hole_18.jpg", cv2.IMREAD_GRAYSCALE)
 
-# SIFT dedektörünü oluşturun
+# Create SIFT detector
 sift = cv2.SIFT_create()
-# Özellik noktalarını ve tanımlayıcıları bulun
+# Find keypoints and descriptors
 keypoints1, descriptors1 = sift.detectAndCompute(image1, None)
 keypoints2, descriptors2 = sift.detectAndCompute(image2, None)
 
-# FLANN tabanlı eşleştirici oluşturun
+# Create FLANN-based matcher
 index_params = dict(algorithm=1, trees=5)
 search_params = dict(checks=50)
 flann = cv2.FlannBasedMatcher(index_params, search_params)
 
-# Tanımlayıcıları eşleştirin
+# Match descriptors
 matches = flann.knnMatch(descriptors1, descriptors2, k=2)
 
-# Lowe'un oran testi ile iyi eşleşmeleri seçin
+# Select good matches using Lowe's ratio test
 good_matches = []
 for m, n in matches:
     if m.distance < 0.7 * n.distance:
         good_matches.append(m)
 
-# Eşleşen noktaları çıkarın
+# Extract matching points
 points1 = np.zeros((len(good_matches), 2), dtype=np.float32)
 points2 = np.zeros((len(good_matches), 2), dtype=np.float32)
 
@@ -102,44 +102,44 @@ for i, match in enumerate(good_matches):
     points1[i, :] = keypoints1[match.queryIdx].pt
     points2[i, :] = keypoints2[match.trainIdx].pt
 
-# Yeterli eşleşme varsa homografi matrisini hesaplayın ve uygulayın
+# Calculate and apply homography matrix if sufficient matches exist
 if len(points1) >= 4:
     H, mask = cv2.findHomography(points2, points1, cv2.RANSAC)
     height, width = image1.shape
     aligned_image2 = cv2.warpPerspective(image2, H, (width, height))
 
-    # Orijinal ve hizalanmış resimleri çakıştırın
+    # Compare original and aligned images
     difference_image = cv2.absdiff(image1, aligned_image2)
     
-    # Eşik değeri uygulayın ve açın
+    # Apply threshold and morphological opening
     _, thresholded_diff = cv2.threshold(difference_image, 25, 255, cv2.THRESH_BINARY)
     kernel = np.ones((3, 3), np.uint8)
     thresholded_diff = cv2.morphologyEx(thresholded_diff, cv2.MORPH_OPEN, kernel)
 
-    # Küçük konturları filtrele
+    # Filter small contours
     min_contour_area = 60
     contours, _ = cv2.findContours(thresholded_diff, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     detected_defects = []
-    # Farklı pikselleri kırmızı bir kare ile işaretleyin
+    # Mark different pixels with red rectangles
     for contour in contours:
         if cv2.contourArea(contour) > min_contour_area:
             x, y, w, h = cv2.boundingRect(contour)
-            cv2.rectangle(image1, (x, y), (x + w, y + h), (0, 0, 255), 2)  # Kırmızı
-            cv2.rectangle(aligned_image2, (x, y), (x + w, y + h), (0, 0, 255), 2)  # Kırmızı
+            cv2.rectangle(image1, (x, y), (x + w, y + h), (0, 0, 255), 2)  # Red
+            cv2.rectangle(aligned_image2, (x, y), (x + w, y + h), (0, 0, 255), 2)  # Red
             detected_defects.append((x, y, x + w, y + h))
     
-    # Gerçek kusur koordinatlarını XML dosyasından al
+    # Get ground truth defect coordinates from XML file
     actual_defects = get_actual_defects("Annotations/Missing_hole/01_missing_hole_18.xml")
-    print("Gerçek değerler :", actual_defects)
-    print("Bizim bulduğumuz değerler:", detected_defects)
+    print("Ground truth:", actual_defects)
+    print("Detected:", detected_defects)
 
-    # Gerçek kusur koordinatlarını sarı ile işaretleyin
+    # Mark ground truth defect coordinates in yellow
     for defect in actual_defects:
         x, y, xmax, ymax = defect
         cv2.rectangle(image1, (x, y), (xmax, ymax), (0, 255, 255), 2) 
     
-    # Doğruluk hesaplaması
+    # Calculate accuracy metrics
     true_positives, false_positives, false_negatives, precision, recall = calculate_metrics(detected_defects, actual_defects)
 
     # mAP hesapla
@@ -147,7 +147,7 @@ if len(points1) >= 4:
     precisions = np.array([precision])
     mAP = calculate_ap(recalls, precisions)
     
-    # Her kusurun IoU'sunu hesapla ve ortalama IoU'yu bul
+    # Calculate IoU for each defect and find average IoU
     iou_values = []
     for detected in detected_defects:
         max_iou = 0
@@ -162,7 +162,7 @@ if len(points1) >= 4:
     average_iou = sum(iou_values) / len(iou_values) if iou_values else 0
     print(f"Average IoU: {average_iou:.2f}")
 
-    # Görselleştirmeler
+    # Visualizations
     def draw_transparent_rect(image, top_left, bottom_right, color, alpha=0.4):
         overlay = image.copy()
         cv2.rectangle(overlay, top_left, bottom_right, color, -1)
@@ -171,16 +171,16 @@ if len(points1) >= 4:
     output_image = cv2.cvtColor(image1, cv2.COLOR_GRAY2BGR)
     height, width, _ = output_image.shape
 
-    # Tespit edilen kusurlar (kırmızı şeffaf)
+    # Detected defects (red transparent)
     for i, (x, y, xmax, ymax) in enumerate(detected_defects):
         iou = iou_values[i]
-        color = (0, 0, 255)  # Kırmızı
+        color = (0, 0, 255)  # Red
         draw_transparent_rect(output_image, (x, y), (xmax, ymax), color)
         cv2.putText(output_image, f'IoU: {iou:.2f}', (x-20 , y - 30), cv2.FONT_HERSHEY_SIMPLEX, 2, color, 4, cv2.LINE_AA)
 
-    # Gerçek kusurlar (sarı şeffaf)
+    # Ground truth defects (yellow transparent)
     for x, y, xmax, ymax in actual_defects:
-        draw_transparent_rect(output_image, (x, y), (xmax, ymax), (0, 255, 255))  # Sarı
+        draw_transparent_rect(output_image, (x, y), (xmax, ymax), (0, 255, 255))  # Yellow
         
     cv2.namedWindow("Difference Image", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Difference Image", 720, 480)
@@ -190,7 +190,7 @@ if len(points1) >= 4:
     cv2.resizeWindow("Detection Results", 1024, 768)
     cv2.imshow("Detection Results", output_image)
 
-    # Konsolda ek bilgileri yazdır
+    # Print additional information to console
     print(f"True Positives: {true_positives}")
     print(f"False Positives: {false_positives}")
     print(f"False Negatives: {false_negatives}")
